@@ -450,14 +450,14 @@ tr.off .odds{color:var(--muted)}
   "campaign": "",
   "localPasscode": "4127",
   "offers": [
-    {"name":"Grand Prize: \u20b95,000 voucher","kind":"Voucher","weight":1,"on":true,"miss":false},
-    {"name":"5% Discount","kind":"Discount","weight":18,"on":true,"miss":false},
-    {"name":"10% Discount","kind":"Discount","weight":10,"on":true,"miss":false},
-    {"name":"3 Jar Gift Box","kind":"Freebie","weight":14,"on":true,"miss":false},
-    {"name":"Gift Hamper","kind":"Freebie","weight":7,"on":true,"miss":false},
-    {"name":"Better luck next time","kind":"No win","weight":20,"on":true,"miss":true},
-    {"name":"5% off your order","kind":"Discount","weight":15,"on":true,"miss":false},
-    {"name":"Free accessory / sample","kind":"Freebie","weight":15,"on":true,"miss":false}
+    {"name":"Gift Hamper","kind":"Gift","weight":100,"on":true,"miss":false,"minQty":1,"maxQty":100},
+    {"name":"5% OFF","kind":"Discount","weight":100,"on":true,"miss":false,"minQty":101,"maxQty":300},
+    {"name":"7% OFF","kind":"Discount","weight":100,"on":true,"miss":false,"minQty":301,"maxQty":1000},
+    {"name":"10% OFF","kind":"Discount","weight":100,"on":true,"miss":false,"minQty":1001},
+    {"name":"Try Your Luck Again","kind":"No win","weight":0,"on":true,"miss":true},
+    {"name":"Gift Hamper","kind":"Gift","weight":0,"on":true,"miss":false},
+    {"name":"Free Shipping","kind":"Freebie","weight":0,"on":true,"miss":false},
+    {"name":"Premium Gift","kind":"Gift","weight":0,"on":true,"miss":false}
   ]
 }
 </script>
@@ -774,11 +774,17 @@ $("#to-spin").onclick = () => {
 /* ---------- spin ---------- */
 let rotation = 0, busy = false;
 function pick(list){
-  const total = list.reduce((a,o) => a + Math.max(0,Number(o.weight)||0), 0);
-  if(total <= 0) return Math.floor(Math.random()*list.length);
+  const qty = Number($("#qty").value) || 0;
+  const w = o => Math.max(0, Number(o.weight)||0);
+  const fits = o => qty >= (o.minQty ?? 0) && qty <= (o.maxQty ?? Infinity);
+  const all = list.map((o,i) => i);
+  let pool = all.filter(i => w(list[i]) > 0 && fits(list[i]));
+  if(!pool.length) pool = all.filter(i => w(list[i]) > 0);   // safety fallback
+  if(!pool.length) return Math.floor(Math.random()*list.length);
+  const total = pool.reduce((a,i) => a + w(list[i]), 0);
   let r = Math.random()*total;
-  for(let i=0;i<list.length;i++){ r -= Math.max(0,Number(list[i].weight)||0); if(r<=0) return i; }
-  return list.length-1;
+  for(const i of pool){ r -= w(list[i]); if(r <= 0) return i; }
+  return pool[pool.length-1];
 }
 function makeCode(){
   const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
