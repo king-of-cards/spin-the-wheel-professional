@@ -653,7 +653,18 @@ const buildEntry = () => ({
   budget:$("#budget").value, pincode:$("#pincode").value
 });
 /* ---------- backend sync ---------- */
-let leadPromise = null, leadPhone = null;
+let leadPromise = null, leadPhone = null, existingLeadId = null;
+
+async function checkPhone(phone){
+  try{
+    const { data, error } = await sb.rpc("check_phone", { p_phone: phone });
+    if(error) throw error;
+    return data || { status: "none" };
+  }catch(e){
+    console.warn("[supabase] check_phone failed:", e.message || e);
+    return { status: "none" };
+  }
+}
 
 // const apiBase = () => ENTRIES_URL;
 
@@ -747,7 +758,27 @@ async function attachPrize(idPromise, result, entry){
   if(error) console.error("[supabase] fallback insert failed:", error.message);
 }
 
-$("#to-wedding").onclick = () => { if(validatePersonal()) show("scr-wedding"); };
+$("#to-wedding").onclick = async () => {
+  const errEl = document.querySelector("#f-phone .err");
+  errEl.textContent = "Enter a valid 10-digit mobile number.";
+  if(!validatePersonal()) return;
+
+  const btn = $("#to-wedding");
+  existingLeadId = null;
+  if(CFG.oncePerNumber){
+    btn.disabled = true; btn.textContent = "Checking…";
+    const res = await checkPhone($("#phone").value);
+    btn.disabled = false; btn.textContent = "Next";
+    if(res.status === "spun"){
+      errEl.textContent = "This number is already registered and has already used its spin. Please contact us if you need help.";
+      mark("f-phone", false);
+      $("#f-phone").scrollIntoView({behavior:"smooth", block:"center"});
+      return;
+    }
+    if(res.status === "registered") existingLeadId = res.lead_id;
+  }
+  show("scr-wedding");
+};
 $("#to-spin").onclick = () => {
   if(!validateWedding()) return;
   const e = buildEntry();
@@ -758,7 +789,7 @@ $("#to-spin").onclick = () => {
   // Capture the lead now, so it's saved even if they leave before spinning.
   if(!leadPromise || leadPhone !== e.phone){
     leadPhone = e.phone;
-    leadPromise = createLead(e);
+    leadPromise = existingLeadId ? Promise.resolve(existingLeadId) : createLead(e);
   }
 
   const btn = $("#spin-btn");
@@ -837,7 +868,7 @@ function renderPrize(r, returning){
   $("#title").innerHTML = returning ? "Already spun" : "Congratulations!";
 }
 $("#restart").onclick = () => {
-  leadPromise = null; leadPhone = null;
+  leadPromise = null; leadPhone = null; existingLeadId = null;
   document.querySelectorAll("#scr-personal input,#scr-wedding input").forEach(i => i.value = "");
   document.querySelectorAll("#scr-personal select,#scr-wedding select").forEach(s => { s.value=""; s.classList.add("empty"); });
   document.querySelectorAll(".f").forEach(f => f.classList.remove("bad"));
