@@ -450,15 +450,11 @@ tr.off .odds{color:var(--muted)}
   "campaign": "",
   "localPasscode": "4127",
   "offers": [
-    {"name":"Gift Hamper","kind":"Gift","weight":100,"on":true,"miss":false,"minQty":1,"maxQty":100},
-    {"name":"5% OFF","kind":"Discount","weight":100,"on":true,"miss":false,"minQty":101,"maxQty":300},
-    {"name":"7% OFF","kind":"Discount","weight":100,"on":true,"miss":false,"minQty":301,"maxQty":1000},
-    {"name":"10% OFF","kind":"Discount","weight":100,"on":true,"miss":false,"minQty":1001},
-    {"name":"Try Your Luck Again","kind":"No win","weight":0,"on":true,"miss":true},
-    {"name":"Gift Hamper","kind":"Gift","weight":0,"on":true,"miss":false},
-    {"name":"Free Shipping","kind":"Freebie","weight":0,"on":true,"miss":false},
-    {"name":"Premium Gift","kind":"Gift","weight":0,"on":true,"miss":false}
-  ]
+  { "name": "5% Discount", "kind": "Discount", "weight": 75, "on": true, "miss": false, "minQty": 1, "dailyCap": 20 },
+  { "name": "10% Discount", "kind": "Discount", "weight": 15, "on": true, "miss": false, "minQty": 999,"guaranteedMinQty": 999, "dailyCap": null },
+  { "name": "3 Jar Gift Box", "kind": "Freebie", "weight": 5, "on": true, "miss": false, "minQty": 1, "dailyCap": null },
+  { "name": "Gift Hamper", "kind": "Gift", "weight": 5, "on": true, "miss": false, "minQty": 1, "dailyCap": 10 }
+]
 }
 </script>
 
@@ -804,19 +800,57 @@ $("#to-spin").onclick = () => {
 
 /* ---------- spin ---------- */
 let rotation = 0, busy = false;
-function pick(list){
+
+function pick(list, exhausted = new Set()) {
   const qty = Number($("#qty").value) || 0;
-  const w = o => Math.max(0, Number(o.weight)||0);
-  const fits = o => qty >= (o.minQty ?? 0) && qty <= (o.maxQty ?? Infinity);
-  const all = list.map((o,i) => i);
-  let pool = all.filter(i => w(list[i]) > 0 && fits(list[i]));
-  if(!pool.length) pool = all.filter(i => w(list[i]) > 0);   // safety fallback
-  if(!pool.length) return Math.floor(Math.random()*list.length);
-  const total = pool.reduce((a,i) => a + w(list[i]), 0);
-  let r = Math.random()*total;
-  for(const i of pool){ r -= w(list[i]); if(r <= 0) return i; }
-  return pool[pool.length-1];
+
+  const weight = offer =>
+    Math.max(0, Number(offer.weight) || 0);
+
+  const eligible = offer =>
+    qty >= (offer.minQty ?? 0) &&
+    qty <= (offer.maxQty ?? Infinity);
+
+  const available = list
+    .map((offer, index) => index)
+    .filter(index =>
+      list[index].on !== false &&
+      !exhausted.has(list[index].name) &&
+      weight(list[index]) > 0 &&
+      eligible(list[index])
+    );
+
+  const guaranteed = available.find(index =>
+    list[index].guaranteedMinQty != null &&
+    qty >= list[index].guaranteedMinQty
+  );
+
+  if (guaranteed !== undefined) {
+    return guaranteed;
+  }
+
+  if (available.length === 0) {
+    return -1;
+  }
+
+  const totalWeight = available.reduce(
+    (total, index) => total + weight(list[index]),
+    0
+  );
+
+  let random = Math.random() * totalWeight;
+
+  for (const index of available) {
+    random -= weight(list[index]);
+
+    if (random <= 0) {
+      return index;
+    }
+  }
+
+  return available[available.length - 1];
 }
+
 function makeCode(){
   const abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let s = ""; for(let i=0;i<6;i++) s += abc[Math.floor(Math.random()*abc.length)];
