@@ -11,6 +11,20 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500;1,600&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
+.duplicate-msg {
+  display: none;
+  color: #9B1C2E;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.duplicate-msg.show {
+  display: block;
+}
+
+.duplicate-msg.checking {
+  color: #8C7F73;
+}
 <style>
 :root{
   --wine:#4A0E1E; --wine-2:#5E1428; --crimson:#8E1A3D;
@@ -266,6 +280,7 @@ tr.off .odds{color:var(--muted)}
           <div class="phone"><div class="cc"><span>IN</span><span>+91</span></div>
             <input id="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile number" autocomplete="tel-national"></div>
           <div class="err">Enter a valid 10-digit mobile number.</div>
+          <div class="duplicate-msg" id="phone-duplicate"></div>
         </div>
         <div class="f" id="f-name">
           <label for="fullname">Full name <span class="req">*</span></label>
@@ -281,6 +296,7 @@ tr.off .odds{color:var(--muted)}
           <label for="email">Email <span class="req">*</span></label>
           <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
           <div class="err">Enter a valid email address.</div>
+          <div class="duplicate-msg" id="email-duplicate"></div>
         </div>
         <div class="f full" id="f-source">
           <label for="source">How did you hear about us? <span class="req">*</span></label>
@@ -652,6 +668,7 @@ const buildEntry = () => ({
 let leadPromise = null, leadPhone = null, existingLeadId = null;
 
 async function checkPhone(phone){
+
   try{
     const { data, error } = await sb.rpc("check_phone", { p_phone: phone });
     if(error) throw error;
@@ -661,6 +678,91 @@ async function checkPhone(phone){
     return { status: "none" };
   }
 }
+
+let duplicateTimer;
+let duplicateRequestId = 0;
+
+function showDuplicate(id, message, checking = false) {
+  const el = document.getElementById(id);
+  el.textContent = message;
+  el.classList.toggle("show", !!message);
+  el.classList.toggle("checking", checking);
+}
+
+async function checkDuplicates() {
+  const phone = $("#phone").value.trim();
+  const email = $("#email").value.trim();
+
+  const validPhone = /^[6-9]\d{9}$/.test(phone);
+  const validEmail = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email);
+
+  const requestId = ++duplicateRequestId;
+
+  showDuplicate("phone-duplicate", "");
+  showDuplicate("email-duplicate", "");
+
+  if (!validPhone && !validEmail) return false;
+
+  if (validPhone) {
+    showDuplicate("phone-duplicate", "Checking...", true);
+  }
+
+  if (validEmail) {
+    showDuplicate("email-duplicate", "Checking...", true);
+  }
+
+  try {
+    const { data, error } = await sb.rpc("check_lead_duplicate", {
+      p_phone: validPhone ? phone : null,
+      p_email: validEmail ? email : null
+    });
+
+    if (error) throw error;
+    if (requestId !== duplicateRequestId) return false;
+
+    const phoneExists = validPhone && data?.phone_exists === true;
+    const emailExists = validEmail && data?.email_exists === true;
+
+    showDuplicate(
+      "phone-duplicate",
+      phoneExists ? "This phone number is already registered." : ""
+    );
+
+    showDuplicate(
+      "email-duplicate",
+      emailExists ? "This email address is already registered." : ""
+    );
+
+    return !phoneExists && !emailExists;
+
+  } catch (error) {
+    if (requestId !== duplicateRequestId) return false;
+
+    console.error("Duplicate check failed:", error);
+
+    if (validPhone) {
+      showDuplicate("phone-duplicate", "Unable to verify. Please try again.");
+    }
+
+    if (validEmail) {
+      showDuplicate("email-duplicate", "Unable to verify. Please try again.");
+    }
+
+    return false;
+  }
+}
+
+["phone", "email"].forEach(id => {
+  $("#" + id).addEventListener("input", () => {
+    clearTimeout(duplicateTimer);
+    duplicateRequestId++;
+
+    showDuplicate("phone-duplicate", "");
+    showDuplicate("email-duplicate", "");
+
+    duplicateTimer = setTimeout(checkDuplicates, 500);
+  });
+});
 
 // const apiBase = () => ENTRIES_URL;
 
@@ -755,26 +857,31 @@ async function attachPrize(idPromise, result, entry){
 }
 
 $("#to-wedding").onclick = async () => {
-  const errEl = document.querySelector("#f-phone .err");
-  errEl.textContent = "Enter a valid 10-digit mobile number.";
-  if(!validatePersonal()) return;
+  if (!validatePersonal()) return;
 
   const btn = $("#to-wedding");
-  existingLeadId = null;
-  if(CFG.oncePerNumber){
-    btn.disabled = true; btn.textContent = "Checking…";
-    const res = await checkPhone($("#phone").value);
-    btn.disabled = false; btn.textContent = "Next";
-    if(res.status === "spun"){
-      errEl.textContent = "This number is already registered and has already used its spin. Please contact us if you need help.";
-      mark("f-phone", false);
-      $("#f-phone").scrollIntoView({behavior:"smooth", block:"center"});
-      return;
-    }
-    if(res.status === "registered") existingLeadId = res.lead_id;
+
+  clearTimeout(duplicateTimer);
+
+  btn.disabled = true;
+  btn.textContent = "Checking...";
+
+  try {
+    const isUnique = await checkDuplicates();
+
+    if (!isUnique) return;
+
+    // Do not reuse an existing lead.
+    existingLeadId = null;
+
+    show("scr-wedding");
+
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Next";
   }
-  show("scr-wedding");
 };
+
 $("#to-spin").onclick = () => {
   if(!validateWedding()) return;
   const e = buildEntry();
